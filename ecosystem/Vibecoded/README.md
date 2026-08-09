@@ -4,4 +4,5 @@ vibecoding
 ---
 livesystems
 ---
-live-exosystems
+live-ecosystems
+---
