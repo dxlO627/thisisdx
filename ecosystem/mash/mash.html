@@ -1,0 +1,635 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>MYCELIUM // procedural fungal network</title>
+<style>
+  :root{
+    --bg: #070a08;
+    --bg-deep: #040605;
+    --strand: #3fd97f;
+    --strand-dim: #1a5c3a;
+    --strand-glow: #7dffb3;
+    --spore: #cfffe0;
+    --resource: #d9a63f;
+    --resource-glow: #ffd98a;
+    --signal: #6ad1ff;
+    --ink: #8fbfa0;
+    --ink-dim: #3d5c48;
+    --panel-bg: rgba(7, 14, 10, 0.72);
+    --mono: 'JetBrains Mono', 'Courier New', monospace;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  html,body{
+    width:100%; height:100%; overflow:hidden;
+    background: radial-gradient(ellipse at 50% 40%, #0b1310 0%, var(--bg) 55%, var(--bg-deep) 100%);
+    font-family: var(--mono);
+    cursor: crosshair;
+  }
+  canvas{ display:block; }
+
+  #hud{
+    position:fixed; top:16px; left:16px;
+    color: var(--ink);
+    font-size:11px;
+    letter-spacing: 0.06em;
+    line-height:1.7;
+    background: var(--panel-bg);
+    border: 1px solid var(--ink-dim);
+    padding: 12px 16px;
+    backdrop-filter: blur(4px);
+    pointer-events:none;
+    user-select:none;
+    min-width: 190px;
+  }
+  #hud .title{
+    color: var(--strand-glow);
+    font-size:13px;
+    font-weight:700;
+    letter-spacing: 0.18em;
+    margin-bottom:6px;
+    text-shadow: 0 0 8px rgba(125,255,179,0.5);
+  }
+  #hud .row{ display:flex; justify-content:space-between; gap:14px; }
+  #hud .row span:last-child{ color: var(--strand); }
+  #hud .sep{ border-top:1px solid var(--ink-dim); margin:6px 0; }
+
+  #controls{
+    position:fixed; bottom:16px; left:16px;
+    color: var(--ink-dim);
+    font-size:10px;
+    letter-spacing: 0.05em;
+    line-height:1.8;
+    background: var(--panel-bg);
+    border: 1px solid var(--ink-dim);
+    padding: 10px 14px;
+    pointer-events:none;
+    user-select:none;
+  }
+  #controls b{ color: var(--ink); }
+
+  #panel-right{
+    position:fixed; top:16px; right:16px;
+    display:flex; flex-direction:column; gap:8px;
+    align-items:flex-end;
+  }
+  .btn{
+    font-family: var(--mono);
+    font-size:10px;
+    letter-spacing: 0.08em;
+    color: var(--ink);
+    background: var(--panel-bg);
+    border: 1px solid var(--ink-dim);
+    padding: 7px 12px;
+    cursor:pointer;
+    pointer-events:auto;
+    user-select:none;
+    transition: all 0.15s ease;
+    text-transform: uppercase;
+  }
+  .btn:hover{
+    color: var(--strand-glow);
+    border-color: var(--strand);
+    box-shadow: 0 0 12px rgba(63,217,127,0.25);
+  }
+  .btn.active{
+    color: var(--bg);
+    background: var(--strand);
+    border-color: var(--strand);
+  }
+
+  #hint{
+    position: fixed;
+    top: 50%; left:50%;
+    transform: translate(-50%,-50%);
+    color: var(--ink-dim);
+    font-size: 12px;
+    letter-spacing: 0.1em;
+    pointer-events:none;
+    user-select:none;
+    opacity: 1;
+    transition: opacity 1.2s ease;
+    text-align:center;
+    line-height: 1.8;
+  }
+  #hint b{ color: var(--strand); }
+
+  ::selection{ background: var(--strand-dim); }
+</style>
+</head>
+<body>
+
+<canvas id="c"></canvas>
+
+<div id="hud">
+  <div class="title">MYCELIUM</div>
+  <div class="row"><span>nodes</span><span id="s-nodes">0</span></div>
+  <div class="row"><span>tips</span><span id="s-tips">0</span></div>
+  <div class="row"><span>colonies</span><span id="s-colonies">0</span></div>
+  <div class="row"><span>age</span><span id="s-age">0s</span></div>
+  <div class="sep"></div>
+  <div class="row"><span>nutrients</span><span id="s-nutrients">0</span></div>
+  <div class="row"><span>biomass</span><span id="s-biomass">0.0</span></div>
+</div>
+
+<div id="panel-right">
+  <div class="btn" id="btn-spore">+ spore</div>
+  <div class="btn" id="btn-nutrient">+ nutrient field</div>
+  <div class="btn active" id="btn-signal">signal pulses: on</div>
+  <div class="btn" id="btn-reset">reset</div>
+</div>
+
+<div id="controls">
+  <b>click</b> drop nutrient &nbsp;·&nbsp; <b>shift+click</b> new spore &nbsp;·&nbsp; <b>drag</b> nutrient trail
+</div>
+
+<div id="hint">click anywhere to feed the network<br><b>shift+click</b> to seed a new colony</div>
+
+<script>
+(function(){
+"use strict";
+
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d', { alpha:false });
+let W, H, DPR;
+
+function resize(){
+  DPR = Math.min(window.devicePixelRatio||1, 2);
+  W = window.innerWidth; H = window.innerHeight;
+  canvas.width = W*DPR; canvas.height = H*DPR;
+  canvas.style.width = W+'px'; canvas.style.height = H+'px';
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+}
+window.addEventListener('resize', resize);
+resize();
+
+// ---------- utility ----------
+const TAU = Math.PI*2;
+function rand(a,b){ return a + Math.random()*(b-a); }
+function randn(){ // gaussian-ish
+  return (Math.random()+Math.random()+Math.random()-1.5)/1.5;
+}
+function clamp(v,a,b){ return Math.max(a,Math.min(b,v)); }
+function dist2(x1,y1,x2,y2){ const dx=x2-x1, dy=y2-y1; return dx*dx+dy*dy; }
+function lerp(a,b,t){ return a+(b-a)*t; }
+
+// ---------- colony palette ----------
+const HUES = [150, 140, 165, 130, 175]; // greenish family, slightly varied per colony
+function colonyColor(hue, light, alpha){
+  return `hsla(${hue}, 70%, ${light}%, ${alpha})`;
+}
+
+// ---------- world state ----------
+let nodes = [];      // all growth nodes (tree structure)
+let tips = [];        // active growing tips (subset of nodes, leaf & alive)
+let nutrients = [];    // nutrient sources on the field
+let signals = [];      // traveling pulses along strands (visual only)
+let colonies = [];     // colony metadata {id, hue, originX, originY, energy}
+let particles = [];    // ambient spore dust / absorption bursts
+
+let nodeIdCounter = 0;
+let colonyIdCounter = 0;
+let startTime = performance.now();
+let paused = false;
+let signalsEnabled = true;
+
+const MAX_NODES = 250000; // memory safety ceiling only — see pruneOldHistory()
+const MAX_TIPS_PER_COLONY = 46;
+
+class Node{
+  constructor(x,y,parent,colonyId,dir,gen){
+    this.id = nodeIdCounter++;
+    this.x=x; this.y=y;
+    this.parent = parent;
+    this.children = [];
+    this.colonyId = colonyId;
+    this.dir = dir;         // heading in radians
+    this.gen = gen;         // branch generation depth
+    this.alive = true;      // still a growing tip
+    this.age = 0;
+    this.thickness = clamp(2.6 - gen*0.055, 0.35, 2.6);
+    this.energy = 1.0;      // local vigor, affects growth speed/branch chance
+    this.pulsePhase = Math.random()*TAU;
+  }
+}
+
+function spawnColony(x,y){
+  const hue = HUES[colonyIdCounter % HUES.length] + rand(-6,6);
+  const id = colonyIdCounter++;
+  colonies.push({ id, hue, x, y, born: performance.now(), nodeCount:1 });
+  const n = new Node(x,y,null,id, rand(0,TAU), 0);
+  nodes.push(n);
+  tips.push(n);
+  // small starter burst of particles
+  burst(x,y,hue,10);
+  return n;
+}
+
+function addNutrient(x,y,amount){
+  nutrients.push({ x,y, r: rand(3,6), amount: amount!==undefined?amount:rand(60,140), maxAmount: 140 });
+}
+
+function burst(x,y,hue,count){
+  for(let i=0;i<count;i++){
+    particles.push({
+      x, y,
+      vx: rand(-0.6,0.6), vy: rand(-0.9,-0.1),
+      life: rand(30,70), maxLife: 70,
+      hue, size: rand(0.6,1.6)
+    });
+  }
+}
+
+// ---------- history pruning (memory safety only, never gates growth) ----------
+// Trims each strand's oldest history beyond a per-tip depth so total memory
+// stays bounded during very long sessions. This only removes nodes far
+// behind the growing tip (old, already-drawn segments deep in a branch's
+// past) — it never touches living tips or slows/stops active growth.
+const MAX_TRAIL_PER_TIP = 900;
+function pruneOldHistory(){
+  const keepIds = new Set();
+  for(const t of tips){
+    let cur = t, steps = 0;
+    while(cur && steps < MAX_TRAIL_PER_TIP){
+      keepIds.add(cur.id);
+      cur = cur.parent;
+      steps++;
+    }
+  }
+  const kept = [];
+  for(const n of nodes){
+    if(keepIds.has(n.id)){
+      kept.push(n);
+    } else if(n.parent){
+      const idx = n.parent.children.indexOf(n);
+      if(idx>=0) n.parent.children.splice(idx,1);
+      n.parent = null; // detach so stale references can't walk further back
+    }
+  }
+  nodes = kept;
+}
+
+// ---------- growth simulation ----------
+function nearestNutrient(x,y,maxDist){
+  let best=null, bestD=maxDist*maxDist;
+  for(const nut of nutrients){
+    const d = dist2(x,y,nut.x,nut.y);
+    if(d<bestD){ bestD=d; best=nut; }
+  }
+  return best;
+}
+
+function stepGrowth(dt){
+  // Tips are naturally bounded by MAX_TIPS_PER_COLONY (branching stops once
+  // each colony hits its tip cap), so growth reaches a steady state on its
+  // own — active tips keep moving indefinitely. MAX_NODES only triggers a
+  // one-off history trim for memory safety; it never halts growth itself.
+  if(nodes.length > MAX_NODES){
+    pruneOldHistory();
+  }
+
+  const newTips = [];
+  for(let i=tips.length-1;i>=0;i--){
+    const t = tips[i];
+    if(!t.alive) continue;
+    t.age += dt;
+
+    // sense nearby nutrient to bias direction (chemotropism)
+    const sensed = nearestNutrient(t.x, t.y, 260);
+    let targetDir = t.dir;
+    if(sensed){
+      const ang = Math.atan2(sensed.y-t.y, sensed.x-t.x);
+      let diff = ang - t.dir;
+      while(diff> Math.PI) diff -= TAU;
+      while(diff<-Math.PI) diff += TAU;
+      targetDir = t.dir + diff*0.35;
+    }
+
+    // organic wander
+    t.dir = targetDir + randn()*0.28;
+
+    // Age slows growth, but the effect is capped so very old tips stay
+    // slow-and-alive instead of decaying toward a standstill forever.
+    const effGen = Math.min(t.gen, 120);
+    const speed = clamp(1.6 * t.energy - effGen*0.012, 0.55, 2.2);
+    const nx = t.x + Math.cos(t.dir)*speed;
+    const ny = t.y + Math.sin(t.dir)*speed;
+
+    // soft boundary steering (keep network mostly on-screen, gentle push inward)
+    const margin = 40;
+    let steer = 0;
+    if(nx < margin) steer += 0.12;
+    if(nx > W-margin) steer -= 0.12;
+    if(ny < margin) steer += 0.12;
+    if(ny > H-margin) steer -= 0.12;
+    if(steer!==0) t.dir += steer;
+
+    // consume nutrient if close
+    if(sensed){
+      const d = Math.sqrt(dist2(nx,ny,sensed.x,sensed.y));
+      if(d < sensed.r + 10){
+        const take = Math.min(sensed.amount, 1.2);
+        sensed.amount -= take;
+        t.energy = clamp(t.energy + take*0.03, 0.4, 1.8);
+        if(Math.random()<0.4) burst(sensed.x,sensed.y, colonies[t.colonyId] ? colonies[t.colonyId].hue : 150, 2);
+        if(sensed.amount <= 0){
+          const idx = nutrients.indexOf(sensed);
+          if(idx>=0) nutrients.splice(idx,1);
+        }
+      }
+    } else {
+      t.energy = clamp(t.energy - 0.0009*dt, 0.35, 1.8);
+    }
+
+    const child = new Node(nx, ny, t, t.colonyId, t.dir, t.gen+1);
+    child.energy = t.energy;
+    t.alive = false;
+    t.children.push(child);
+    nodes.push(child);
+
+    const col = colonies[t.colonyId];
+    if(col) col.nodeCount++;
+
+    // A tip only dies while genuinely starving (very low energy for a
+    // sustained stretch) — age alone never kills it, so the network can't
+    // quietly go extinct just from running for a long time.
+    const naturalDeath = t.energy < 0.42 && Math.random() < 0.01;
+    if(!naturalDeath){
+      newTips.push(child);
+    }
+
+    // branching (age effect capped, same reasoning as speed above)
+    // NOTE: branching is gated only by MAX_TIPS_PER_COLONY, which is the
+    // real steady-state control. MAX_NODES is a separate, much larger
+    // safety ceiling on total history (see pruneOldHistory) — it must never
+    // gate branching directly, or the whole network would stop producing
+    // new growth the moment history fills up while tips keep aging and
+    // dying, causing the population to only ever shrink.
+    const branchChance = clamp(0.014 + (t.energy-1)*0.02 - effGen*0.00008, 0.002, 0.05);
+    const colonyTipCount = tips.filter(tt=>tt.colonyId===t.colonyId).length;
+    if(Math.random() < branchChance && colonyTipCount < MAX_TIPS_PER_COLONY){
+      const branchDir = t.dir + (Math.random()<0.5?1:-1)*rand(0.5,1.15);
+      const b = new Node(t.x, t.y, t, t.colonyId, branchDir, t.gen+1);
+      b.energy = t.energy*0.85;
+      t.children.push(b);
+      nodes.push(b);
+      newTips.push(b);
+      if(col) col.nodeCount++;
+    }
+
+    // occasional signal pulse traveling back toward origin (visual)
+    if(signalsEnabled && Math.random() < 0.02){
+      signals.push({ node: child, progress: 0, hue: col?col.hue:150 });
+    }
+  }
+
+  tips.length = 0;
+  for(const nt of newTips) tips.push(nt);
+}
+
+function stepSignals(dt){
+  for(let i=signals.length-1;i>=0;i--){
+    const s = signals[i];
+    s.progress += dt*0.06;
+    if(!s.node || s.progress>=1){
+      if(s.node && s.node.parent){
+        s.node = s.node.parent;
+        s.progress = 0;
+      } else {
+        signals.splice(i,1);
+      }
+    }
+  }
+  if(signals.length>500) signals.splice(0, signals.length-500);
+}
+
+function stepParticles(dt){
+  for(let i=particles.length-1;i>=0;i--){
+    const p = particles[i];
+    p.x += p.vx; p.y += p.vy;
+    p.vy += 0.01;
+    p.life -= dt*0.06;
+    if(p.life<=0) particles.splice(i,1);
+  }
+}
+
+// ambient nutrient regeneration - sparse random spawns to keep network fed
+let ambientTimer = 0;
+function stepAmbient(dt){
+  ambientTimer += dt;
+  if(ambientTimer > 90 && nutrients.length < 24){
+    ambientTimer = 0;
+    addNutrient(rand(60,W-60), rand(60,H-60), rand(40,100));
+  }
+}
+
+// ---------- rendering ----------
+let bgCache = null;
+function drawBackground(){
+  // deep radial vignette + faint texture, cached as gradient fill each frame (cheap)
+  const g = ctx.createRadialGradient(W*0.5,H*0.42,0, W*0.5,H*0.42, Math.max(W,H)*0.75);
+  g.addColorStop(0,'#0c1712');
+  g.addColorStop(0.55,'#070a08');
+  g.addColorStop(1,'#030504');
+  ctx.fillStyle = g;
+  ctx.fillRect(0,0,W,H);
+}
+
+function drawNutrients(){
+  for(const n of nutrients){
+    const t = n.amount / n.maxAmount;
+    const r = n.r + t*4;
+    const grad = ctx.createRadialGradient(n.x,n.y,0,n.x,n.y,r*4);
+    grad.addColorStop(0, `rgba(217,166,63,${0.35*t+0.08})`);
+    grad.addColorStop(1, 'rgba(217,166,63,0)');
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.arc(n.x,n.y,r*4,0,TAU);
+    ctx.fill();
+
+    ctx.fillStyle = `rgba(255,217,138,${0.5+0.4*t})`;
+    ctx.beginPath();
+    ctx.arc(n.x,n.y,Math.max(1.4,r*0.4),0,TAU);
+    ctx.fill();
+  }
+}
+
+function drawStrands(){
+  ctx.lineCap = 'round';
+  for(const n of nodes){
+    if(!n.parent) continue;
+    const col = colonies[n.colonyId];
+    const hue = col ? col.hue : 150;
+    const genFade = clamp(1 - n.gen*0.0016, 0.35, 1);
+    const energyGlow = clamp((n.energy-0.4)/1.4, 0, 1);
+
+    ctx.strokeStyle = colonyColor(hue, 55+energyGlow*15, 0.55*genFade);
+    ctx.lineWidth = n.thickness;
+    ctx.beginPath();
+    ctx.moveTo(n.parent.x, n.parent.y);
+    ctx.lineTo(n.x, n.y);
+    ctx.stroke();
+  }
+}
+
+function drawTipGlow(){
+  for(const t of tips){
+    const col = colonies[t.colonyId];
+    const hue = col ? col.hue : 150;
+    const pulse = 0.5 + 0.5*Math.sin(performance.now()*0.004 + t.pulsePhase);
+    const r = 3.2 + pulse*1.6;
+    const grad = ctx.createRadialGradient(t.x,t.y,0,t.x,t.y,r*3.5);
+    grad.addColorStop(0, colonyColor(hue, 85, 0.55));
+    grad.addColorStop(1, colonyColor(hue, 85, 0));
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.arc(t.x,t.y,r*3.5,0,TAU);
+    ctx.fill();
+
+    ctx.fillStyle = colonyColor(hue, 92, 0.9);
+    ctx.beginPath();
+    ctx.arc(t.x,t.y, 1.5, 0, TAU);
+    ctx.fill();
+  }
+}
+
+function drawSignals(){
+  if(!signalsEnabled) return;
+  for(const s of signals){
+    if(!s.node || !s.node.parent) continue;
+    const a = s.node.parent, b = s.node;
+    const x = lerp(b.x, a.x, s.progress);
+    const y = lerp(b.y, a.y, s.progress);
+    ctx.fillStyle = `hsla(${s.hue+30}, 90%, 75%, 0.85)`;
+    ctx.beginPath();
+    ctx.arc(x,y,1.6,0,TAU);
+    ctx.fill();
+    ctx.fillStyle = `hsla(${s.hue+30}, 90%, 75%, 0.18)`;
+    ctx.beginPath();
+    ctx.arc(x,y,4,0,TAU);
+    ctx.fill();
+  }
+}
+
+function drawParticles(){
+  for(const p of particles){
+    const a = clamp(p.life/p.maxLife,0,1);
+    ctx.fillStyle = `hsla(${p.hue}, 80%, 80%, ${a*0.7})`;
+    ctx.beginPath();
+    ctx.arc(p.x,p.y,p.size,0,TAU);
+    ctx.fill();
+  }
+}
+
+// ---------- HUD ----------
+let lastHudUpdate = 0;
+function updateHud(now){
+  if(now - lastHudUpdate < 200) return;
+  lastHudUpdate = now;
+  document.getElementById('s-nodes').textContent = nodes.length;
+  document.getElementById('s-tips').textContent = tips.length;
+  document.getElementById('s-colonies').textContent = colonies.length;
+  const ageSec = Math.floor((now-startTime)/1000);
+  const mm = Math.floor(ageSec/60), ss = ageSec%60;
+  document.getElementById('s-age').textContent = mm>0 ? `${mm}m ${ss}s` : `${ss}s`;
+  document.getElementById('s-nutrients').textContent = nutrients.length;
+  const biomass = nodes.reduce((a,n)=>a+n.thickness,0)/40;
+  document.getElementById('s-biomass').textContent = biomass.toFixed(1);
+}
+
+// ---------- main loop ----------
+let last = performance.now();
+function loop(now){
+  requestAnimationFrame(loop);
+  let dt = now-last; last = now;
+  dt = clamp(dt, 0, 40); // avoid huge jumps on tab refocus
+  if(paused) dt = 0;
+
+  if(!paused){
+    stepGrowth(dt*0.35);
+    stepSignals(dt);
+    stepParticles(dt);
+    stepAmbient(dt);
+  }
+
+  drawBackground();
+  drawNutrients();
+  drawStrands();
+  drawSignals();
+  drawTipGlow();
+  drawParticles();
+  updateHud(now);
+}
+
+// ---------- input ----------
+const hint = document.getElementById('hint');
+let hintDismissed = false;
+function dismissHint(){
+  if(hintDismissed) return;
+  hintDismissed = true;
+  hint.style.opacity = '0';
+}
+
+let isDragging = false;
+canvas.addEventListener('pointerdown', e=>{
+  dismissHint();
+  const x = e.clientX, y = e.clientY;
+  if(e.shiftKey){
+    spawnColony(x,y);
+  } else {
+    addNutrient(x,y);
+    isDragging = true;
+  }
+});
+canvas.addEventListener('pointermove', e=>{
+  if(isDragging){
+    addNutrient(e.clientX, e.clientY, rand(20,45));
+  }
+});
+window.addEventListener('pointerup', ()=>{ isDragging=false; });
+
+document.getElementById('btn-spore').addEventListener('click', ()=>{
+  dismissHint();
+  spawnColony(rand(W*0.2,W*0.8), rand(H*0.2,H*0.8));
+});
+document.getElementById('btn-nutrient').addEventListener('click', ()=>{
+  dismissHint();
+  const cx = rand(W*0.3,W*0.7), cy = rand(H*0.3,H*0.7);
+  for(let i=0;i<10;i++){
+    addNutrient(cx+rand(-120,120), cy+rand(-120,120), rand(40,90));
+  }
+});
+const btnSignal = document.getElementById('btn-signal');
+btnSignal.addEventListener('click', ()=>{
+  signalsEnabled = !signalsEnabled;
+  btnSignal.textContent = 'signal pulses: ' + (signalsEnabled?'on':'off');
+  btnSignal.classList.toggle('active', signalsEnabled);
+});
+document.getElementById('btn-reset').addEventListener('click', ()=>{
+  nodes = []; tips=[]; nutrients=[]; signals=[]; colonies=[]; particles=[];
+  nodeIdCounter=0; colonyIdCounter=0; startTime = performance.now();
+  init();
+});
+
+window.addEventListener('keydown', e=>{
+  if(e.code === 'Space'){ paused = !paused; e.preventDefault(); }
+});
+
+// ---------- init ----------
+function init(){
+  const cx = W/2, cy = H/2;
+  spawnColony(cx + rand(-60,60), cy + rand(-60,60));
+  spawnColony(cx + rand(-260,-160), cy + rand(-140,140));
+  spawnColony(cx + rand(160,260), cy + rand(-140,140));
+  for(let i=0;i<8;i++){
+    addNutrient(rand(80,W-80), rand(80,H-80), rand(50,110));
+  }
+}
+
+init();
+requestAnimationFrame(loop);
+
+})();
+</script>
+</body>
+</html>
