@@ -1,6 +1,6 @@
 >ecosystem
 ---
-vibecoding
+<vibecoding
 ---
 livesystems
 ---
