@@ -2,7 +2,7 @@
 ---
 <vibecoding
 ---
-livesystems
+#livesystems
 ---
 live-ecosystems
 ---
