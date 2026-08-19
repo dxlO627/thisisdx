@@ -1,0 +1,1102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Wardenwood Reserve — Ecosystem Monitor</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600;8..60,700&display=swap');
+
+  :root{
+    --bark:        #1c1712;
+    --bark-2:      #2a2118;
+    --moss:        #2f4a34;
+    --moss-2:      #3f6146;
+    --canopy-dark: #16261a;
+    --canopy:      #23392a;
+    --parchment:   #e9e2ce;
+    --parchment-2: #cfc4a3;
+    --amber:       #c98a3b;
+    --amber-bright:#e0a659;
+    --rust:        #a4462c;
+    --blood:       #8c3a2e;
+    --water:       #3a6b74;
+    --water-2:     #274d55;
+    --ink:         #d9d2bd;
+    --ink-dim:     #948a70;
+    --line:        #4a4032;
+  }
+
+  *{ box-sizing:border-box; }
+
+  body{
+    margin:0;
+    background: var(--bark);
+    color: var(--ink);
+    font-family:'JetBrains Mono', monospace;
+    -webkit-font-smoothing:antialiased;
+  }
+
+  .frame{
+    max-width:1400px;
+    margin:0 auto;
+    padding:22px 22px 40px;
+  }
+
+  /* ---------- header ---------- */
+  header{
+    display:flex;
+    justify-content:space-between;
+    align-items:flex-end;
+    border-bottom:2px solid var(--line);
+    padding-bottom:14px;
+    margin-bottom:18px;
+    gap:20px;
+    flex-wrap:wrap;
+  }
+  .title-block h1{
+    font-family:'Source Serif 4', serif;
+    font-weight:700;
+    font-size:30px;
+    margin:0 0 4px;
+    color: var(--parchment);
+    letter-spacing:0.3px;
+  }
+  .title-block .sub{
+    font-size:11px;
+    letter-spacing:2px;
+    text-transform:uppercase;
+    color: var(--amber);
+  }
+  .status-chip{
+    display:flex;
+    align-items:center;
+    gap:8px;
+    font-size:11px;
+    letter-spacing:1px;
+    text-transform:uppercase;
+    color: var(--ink-dim);
+    border:1px solid var(--line);
+    padding:7px 12px;
+    background: rgba(0,0,0,0.2);
+  }
+  .status-chip .dot{
+    width:8px; height:8px; border-radius:50%;
+    background:var(--moss-2);
+    box-shadow:0 0 8px var(--moss-2);
+  }
+  .status-chip.paused .dot{ background:var(--rust); box-shadow:0 0 8px var(--rust); }
+
+  .meta-row{
+    display:flex;
+    gap:22px;
+    font-size:12px;
+    color:var(--ink-dim);
+  }
+  .meta-row b{ color:var(--parchment); font-weight:600; }
+
+  /* ---------- layout ---------- */
+  .layout{
+    display:grid;
+    grid-template-columns: 1.6fr 1fr;
+    gap:18px;
+  }
+  @media (max-width: 980px){
+    .layout{ grid-template-columns: 1fr; }
+  }
+
+  .panel{
+    border:1px solid var(--line);
+    background: linear-gradient(180deg, rgba(255,255,255,0.015), rgba(0,0,0,0.1));
+  }
+  .panel-head{
+    display:flex; justify-content:space-between; align-items:center;
+    padding:10px 14px;
+    border-bottom:1px solid var(--line);
+    font-size:11px;
+    letter-spacing:1.5px;
+    text-transform:uppercase;
+    color:var(--amber-bright);
+  }
+  .panel-head .count{ color:var(--ink-dim); text-transform:none; letter-spacing:0; }
+
+  /* ---------- terrain / canvas ---------- */
+  .terrain-wrap{ position:relative; }
+  #terrain{ display:block; width:100%; height:auto; background:var(--canopy-dark); cursor:crosshair; }
+
+  .controls{
+    display:flex; gap:8px; align-items:center; flex-wrap:wrap;
+    padding:10px 14px;
+    border-top:1px solid var(--line);
+    background: rgba(0,0,0,0.15);
+  }
+  button{
+    font-family:'JetBrains Mono', monospace;
+    font-size:11px;
+    letter-spacing:1px;
+    text-transform:uppercase;
+    background: var(--bark-2);
+    color: var(--parchment);
+    border:1px solid var(--line);
+    padding:8px 14px;
+    cursor:pointer;
+    transition: border-color .15s ease, color .15s ease;
+  }
+  button:hover{ border-color:var(--amber); color:var(--amber-bright); }
+  button.primary{ background:var(--moss); border-color:var(--moss-2); }
+  button.primary:hover{ border-color:var(--amber); }
+  button:disabled{ opacity:0.35; cursor:not-allowed; }
+
+  .speed-group{ display:flex; gap:4px; margin-left:auto; }
+  .speed-group button.active{ background:var(--amber); color:var(--bark); border-color:var(--amber); }
+
+  select{
+    font-family:'JetBrains Mono', monospace;
+    font-size:11px;
+    background:var(--bark-2);
+    color:var(--parchment);
+    border:1px solid var(--line);
+    padding:8px 10px;
+  }
+
+  /* ---------- legend ---------- */
+  .legend{
+    display:flex; flex-wrap:wrap; gap:12px;
+    padding:10px 14px;
+    border-top:1px solid var(--line);
+    font-size:10.5px;
+    color:var(--ink-dim);
+  }
+  .legend span{ display:inline-flex; align-items:center; gap:5px; }
+  .legend i{ width:9px; height:9px; display:inline-block; border-radius:50%; }
+
+  /* ---------- species table ---------- */
+  .species-table{ width:100%; border-collapse:collapse; font-size:12px; }
+  .species-table th{
+    text-align:left; font-weight:600; font-size:9.5px; letter-spacing:1px; text-transform:uppercase;
+    color:var(--ink-dim); padding:8px 12px; border-bottom:1px solid var(--line);
+  }
+  .species-table td{ padding:7px 12px; border-bottom:1px solid rgba(74,64,50,0.5); vertical-align:middle; }
+  .species-table tr:last-child td{ border-bottom:none; }
+  .species-table .icon{ font-size:15px; margin-right:6px; }
+  .role-carnivore{ color:var(--blood); }
+  .role-predator-mid{ color:var(--rust); }
+  .role-herbivore{ color:var(--moss-2); }
+  .role-domestic{ color:var(--amber); }
+  .bar-track{ width:60px; height:5px; background:rgba(0,0,0,0.3); position:relative; display:inline-block; vertical-align:middle; }
+  .bar-fill{ height:100%; background:var(--amber); }
+  .trend-up{ color:var(--moss-2); }
+  .trend-down{ color:var(--blood); }
+  .trend-flat{ color:var(--ink-dim); }
+
+  /* ---------- vitals cards ---------- */
+  .vitals{
+    display:grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap:1px;
+    background: var(--line);
+    border-bottom:1px solid var(--line);
+  }
+  .vital{
+    background: var(--bark);
+    padding:12px 14px;
+  }
+  .vital .num{ font-size:22px; font-weight:700; color:var(--parchment); font-family:'Source Serif 4', serif; }
+  .vital .lbl{ font-size:9.5px; letter-spacing:1px; text-transform:uppercase; color:var(--ink-dim); margin-top:2px; }
+
+  /* ---------- log ---------- */
+  .log{
+    max-height:230px;
+    overflow-y:auto;
+    padding:6px 0;
+  }
+  .log::-webkit-scrollbar{ width:6px; }
+  .log::-webkit-scrollbar-thumb{ background:var(--line); }
+  .log-entry{
+    padding:6px 14px;
+    font-size:11.5px;
+    border-bottom:1px solid rgba(74,64,50,0.35);
+    display:flex; gap:10px;
+    line-height:1.5;
+  }
+  .log-entry .t{ color:var(--ink-dim); flex-shrink:0; }
+  .log-entry.birth .t{ color:var(--moss-2); }
+  .log-entry.hunt .t{ color:var(--blood); }
+  .log-entry.starve .t{ color:var(--rust); }
+  .log-entry.graze .t{ color:var(--amber); }
+  .log-entry.extinct .t{ color:var(--blood); font-weight:700; }
+
+  /* ---------- inspector ---------- */
+  #inspector{ padding:14px; font-size:12px; }
+  #inspector .empty{ color:var(--ink-dim); font-style:normal; }
+  .trait-row{ display:flex; justify-content:space-between; padding:5px 0; border-bottom:1px solid rgba(74,64,50,0.4); }
+  .trait-row:last-child{ border:none; }
+  .trait-row b{ color:var(--parchment); }
+
+  footer{
+    margin-top:26px;
+    padding-top:14px;
+    border-top:1px solid var(--line);
+    font-size:10.5px;
+    color:var(--ink-dim);
+    display:flex;
+    justify-content:space-between;
+    flex-wrap:wrap;
+    gap:8px;
+  }
+</style>
+</head>
+<body>
+
+<div class="frame">
+
+  <header>
+    <div class="title-block">
+      <h1>Wardenwood Reserve</h1>
+      <div class="sub">Protected Forest — Ecosystem Monitoring Station</div>
+    </div>
+    <div style="display:flex; align-items:center; gap:14px;">
+      <div class="meta-row">
+        <span>Day <b id="dayCount">0</b></span>
+        <span>Season <b id="seasonName">Spring</b></span>
+        <span>Terrain <b>64 × 40</b></span>
+      </div>
+      <div class="status-chip" id="statusChip"><span class="dot"></span><span id="statusText">Running</span></div>
+    </div>
+  </header>
+
+  <div class="layout">
+
+    <!-- LEFT: terrain + controls -->
+    <div class="panel">
+      <div class="panel-head">
+        <span>Reserve Map</span>
+        <span class="count" id="mapPopCount">0 animals tracked</span>
+      </div>
+      <div class="terrain-wrap">
+        <canvas id="terrain" width="960" height="600"></canvas>
+      </div>
+      <div class="controls">
+        <button class="primary" id="btnPause">Pause</button>
+        <button id="btnStep">Step Day</button>
+        <button id="btnReset">Reset Reserve</button>
+        <div class="speed-group">
+          <button class="speed-btn" data-speed="2000">Slow</button>
+          <button class="speed-btn active" data-speed="900">Normal</button>
+          <button class="speed-btn" data-speed="350">Fast</button>
+        </div>
+      </div>
+      <div class="legend" id="legendRow"></div>
+    </div>
+
+    <!-- RIGHT: dashboard -->
+    <div style="display:flex; flex-direction:column; gap:18px;">
+
+      <div class="panel">
+        <div class="panel-head"><span>Reserve Vitals</span></div>
+        <div class="vitals">
+          <div class="vital"><div class="num" id="vTotal">0</div><div class="lbl">Total Population</div></div>
+          <div class="vital"><div class="num" id="vSpecies">0</div><div class="lbl">Species Present</div></div>
+          <div class="vital"><div class="num" id="vVeg">0%</div><div class="lbl">Vegetation Cover</div></div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head"><span>Species Census</span><span class="count" id="censusUpdated">—</span></div>
+        <table class="species-table">
+          <thead>
+            <tr><th>Species</th><th>Pop.</th><th>Avg Energy</th><th>Trend</th></tr>
+          </thead>
+          <tbody id="speciesBody"></tbody>
+        </table>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head"><span>Inspector</span><span class="count">click an animal</span></div>
+        <div id="inspector"><div class="empty">Click any animal on the map to view its traits.</div></div>
+      </div>
+
+    </div>
+  </div>
+
+  <div class="panel" style="margin-top:18px;">
+    <div class="panel-head"><span>Ranger's Log</span><span class="count" id="logCount">0 events</span></div>
+    <div class="log" id="logList"></div>
+  </div>
+
+  <footer>
+    <span>Wardenwood is a closed simulation — no animal enters or leaves the reserve boundary.</span>
+    <span id="tickInfo">Tick interval: 900ms</span>
+  </footer>
+
+</div>
+
+<script>
+(function(){
+
+'use strict';
+
+/* =========================================================
+   CONFIG
+   ========================================================= */
+const COLS = 64, ROWS = 40;
+let CELL = 15; // px, recalculated on resize
+const canvas = document.getElementById('terrain');
+const ctx = canvas.getContext('2d');
+
+const TERRAIN = { DENSE_FOREST:0, OPEN_FOREST:1, GRASSLAND:2, WATER:3, ROCK:4 };
+const TERRAIN_COLOR = {
+  [TERRAIN.DENSE_FOREST]: '#16261a',
+  [TERRAIN.OPEN_FOREST]:  '#20362a',
+  [TERRAIN.GRASSLAND]:    '#3a4a2c',
+  [TERRAIN.WATER]:        '#274d55',
+  [TERRAIN.ROCK]:         '#3a352c'
+};
+
+/* =========================================================
+   SPECIES DEFINITIONS
+   traits: speed, power, senseRange, maxEnergy, metabolism,
+           reproChance (per day, when eligible), reproEnergyCost,
+           matureAge, lifespan, diet, preferredTerrain
+   ========================================================= */
+const SPECIES = {
+  wolf: {
+    key:'wolf', name:'Grey Wolf', icon:'🐺', role:'carnivore', roleLabel:'Apex Carnivore',
+    speed:3, power:9, senseRange:7, maxEnergy:120, metabolism:1.6,
+    reproChance:0.03, reproEnergyCost:55, matureAge:24, lifespan:220, packHunter:true,
+    diet:'carnivore', huntTargets:['deer','rabbit','boar'], color:'#8c8c8c'
+  },
+  fox: {
+    key:'fox', name:'Red Fox', icon:'🦊', role:'predator-mid', roleLabel:'Mesopredator',
+    speed:4, power:4, senseRange:6, maxEnergy:75, metabolism:1.1,
+    reproChance:0.045, reproEnergyCost:32, matureAge:16, lifespan:150,
+    diet:'omnivore', huntTargets:['rabbit'], grazeToo:true, color:'#c1622b'
+  },
+  bear: {
+    key:'bear', name:'Brown Bear', icon:'🐻', role:'carnivore', roleLabel:'Apex Omnivore',
+    speed:2, power:14, senseRange:5, maxEnergy:200, metabolism:2.2,
+    reproChance:0.012, reproEnergyCost:90, matureAge:40, lifespan:300,
+    diet:'omnivore', huntTargets:['deer','boar'], grazeToo:true, color:'#5c4432'
+  },
+  deer: {
+    key:'deer', name:'Red Deer', icon:'🦌', role:'herbivore', roleLabel:'Herbivore',
+    speed:4, power:2, senseRange:8, maxEnergy:90, metabolism:1.0,
+    reproChance:0.05, reproEnergyCost:30, matureAge:18, lifespan:160,
+    diet:'herbivore', color:'#a9784f'
+  },
+  rabbit: {
+    key:'rabbit', name:'Wild Rabbit', icon:'🐇', role:'herbivore', roleLabel:'Herbivore (fast breeder)',
+    speed:5, power:1, senseRange:5, maxEnergy:40, metabolism:0.7,
+    reproChance:0.09, reproEnergyCost:12, matureAge:8, lifespan:60,
+    diet:'herbivore', color:'#cfc4a3'
+  },
+  boar: {
+    key:'boar', name:'Wild Boar', icon:'🐗', role:'herbivore', roleLabel:'Omnivore-leaning grazer',
+    speed:2, power:6, senseRange:5, maxEnergy:110, metabolism:1.2,
+    reproChance:0.035, reproEnergyCost:40, matureAge:22, lifespan:170,
+    diet:'herbivore', color:'#4a3b2e'
+  },
+  sheepdog: {
+    key:'sheepdog', name:'Herd Dog', icon:'🐕', role:'domestic', roleLabel:'Domestic (guardian)',
+    speed:4, power:5, senseRange:8, maxEnergy:85, metabolism:1.1,
+    reproChance:0.02, reproEnergyCost:35, matureAge:20, lifespan:180,
+    diet:'omnivore', huntTargets:[], guardsHerd:true, color:'#d8cba8'
+  },
+  sheep: {
+    key:'sheep', name:'Domestic Sheep', icon:'🐑', role:'domestic', roleLabel:'Domestic (herd)',
+    speed:2, power:1, senseRange:4, maxEnergy:70, metabolism:0.8,
+    reproChance:0.04, reproEnergyCost:25, matureAge:16, lifespan:130,
+    diet:'herbivore', color:'#e9e2ce'
+  }
+};
+
+// initial populations — deliberately modest so growth is gradual, not explosive
+const INITIAL_COUNTS = {
+  wolf: 5, fox: 7, bear: 3,
+  deer: 22, rabbit: 34, boar: 12,
+  sheepdog: 3, sheep: 10
+};
+
+/* =========================================================
+   STATE
+   ========================================================= */
+let terrainGrid = [];
+let animals = [];
+let vegetation = []; // per-cell 0..1 grazing resource
+let nextId = 1;
+let day = 0;
+let paused = false;
+let tickMs = 900;
+let timer = null;
+let selectedAnimal = null;
+let logEntries = [];
+let popHistory = {}; // species -> array of recent counts for trend
+
+const SEASONS = ['Spring','Summer','Autumn','Winter'];
+const DAYS_PER_SEASON = 30;
+
+/* =========================================================
+   TERRAIN GENERATION
+   Simple layered noise-ish generation: a river, forest core,
+   grassland belt, occasional rock outcrops.
+   ========================================================= */
+function generateTerrain(){
+  terrainGrid = [];
+  vegetation = [];
+  for(let y=0;y<ROWS;y++){
+    const row = [];
+    const veg = [];
+    for(let x=0;x<COLS;x++){
+      row.push(TERRAIN.DENSE_FOREST);
+      veg.push(0);
+    }
+    terrainGrid.push(row);
+    vegetation.push(veg);
+  }
+
+  // base: radial dense forest fading to open forest / grassland at edges
+  const cx = COLS/2, cy = ROWS/2;
+  for(let y=0;y<ROWS;y++){
+    for(let x=0;x<COLS;x++){
+      const d = Math.hypot((x-cx)/COLS, (y-cy)/ROWS);
+      const n = pseudoNoise(x,y);
+      let t;
+      if(d < 0.22 + n*0.08) t = TERRAIN.DENSE_FOREST;
+      else if(d < 0.36 + n*0.10) t = TERRAIN.OPEN_FOREST;
+      else t = TERRAIN.GRASSLAND;
+      terrainGrid[y][x] = t;
+    }
+  }
+
+  // river: sine-curved band of water crossing the map
+  for(let x=0;x<COLS;x++){
+    const yCenter = ROWS*0.62 + Math.sin(x*0.18)*3.2 + Math.sin(x*0.05)*2;
+    for(let w=-1; w<=1; w++){
+      const yy = Math.round(yCenter+w);
+      if(yy>=0 && yy<ROWS) terrainGrid[yy][x] = TERRAIN.WATER;
+    }
+  }
+
+  // scattered rock outcrops
+  for(let i=0;i<10;i++){
+    const rx = Math.floor(rand()*COLS), ry = Math.floor(rand()*ROWS);
+    if(terrainGrid[ry] && terrainGrid[ry][rx] !== TERRAIN.WATER){
+      const size = 1 + Math.floor(rand()*2);
+      for(let dy=-size; dy<=size; dy++){
+        for(let dx=-size; dx<=size; dx++){
+          const yy=ry+dy, xx=rx+dx;
+          if(yy>=0&&yy<ROWS&&xx>=0&&xx<COLS && Math.hypot(dx,dy)<=size && terrainGrid[yy][xx]!==TERRAIN.WATER){
+            terrainGrid[yy][xx] = TERRAIN.ROCK;
+          }
+        }
+      }
+    }
+  }
+
+  // initial vegetation: forest/grassland start fairly vegetated
+  for(let y=0;y<ROWS;y++){
+    for(let x=0;x<COLS;x++){
+      const t = terrainGrid[y][x];
+      if(t===TERRAIN.GRASSLAND) vegetation[y][x] = 0.7 + rand()*0.3;
+      else if(t===TERRAIN.OPEN_FOREST) vegetation[y][x] = 0.5 + rand()*0.3;
+      else if(t===TERRAIN.DENSE_FOREST) vegetation[y][x] = 0.35 + rand()*0.25;
+      else vegetation[y][x] = 0;
+    }
+  }
+}
+
+let noiseSeed = 1337;
+function rand(){
+  // simple deterministic-ish PRNG (mulberry32) seeded per session for stable-feeling terrain
+  noiseSeed |= 0; noiseSeed = (noiseSeed + 0x6D2B79F5) | 0;
+  let t = Math.imul(noiseSeed ^ (noiseSeed >>> 15), 1 | noiseSeed);
+  t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+  return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+}
+function pseudoNoise(x,y){
+  const v = Math.sin(x*12.9898 + y*78.233) * 43758.5453;
+  return Math.abs(v % 1);
+}
+
+function isPassable(x,y){
+  if(x<0||x>=COLS||y<0||y>=ROWS) return false;
+  return terrainGrid[y][x] !== TERRAIN.WATER;
+}
+
+/* =========================================================
+   ANIMAL CREATION
+   ========================================================= */
+function spawnAnimal(speciesKey, x, y, age){
+  const sp = SPECIES[speciesKey];
+  return {
+    id: nextId++,
+    species: speciesKey,
+    x, y,
+    age: age !== undefined ? age : Math.floor(rand()*sp.matureAge*1.5),
+    energy: sp.maxEnergy * (0.6 + rand()*0.3),
+    alive: true,
+    lastAction: 'idle',
+    cooldown: 0 // repro cooldown counter
+  };
+}
+
+function seedPopulation(){
+  animals = [];
+  nextId = 1;
+  Object.keys(INITIAL_COUNTS).forEach(key=>{
+    const sp = SPECIES[key];
+    let attempts = 0;
+    for(let i=0;i<INITIAL_COUNTS[key]; i++){
+      let placed = false;
+      attempts = 0;
+      while(!placed && attempts < 200){
+        const x = Math.floor(rand()*COLS);
+        const y = Math.floor(rand()*ROWS);
+        if(isPassable(x,y)){
+          // simple habitat bias: herbivores prefer grassland/open forest, predators anywhere passable
+          animals.push(spawnAnimal(key, x, y));
+          placed = true;
+        }
+        attempts++;
+      }
+    }
+  });
+}
+
+/* =========================================================
+   SIMULATION STEP (one "day")
+   Deliberately paced: animals move at most 1 cell per axis per
+   day (their "speed" trait instead governs hunt success / flee
+   success / repro rate), so nothing sprints across the map in
+   a single tick and populations shift gradually.
+   ========================================================= */
+function stepDay(){
+  day++;
+  updateSeasonLabel();
+
+  // 1. vegetation regrowth (slower in winter)
+  const season = currentSeason();
+  const regrowRate = season==='Winter' ? 0.01 : (season==='Summer' ? 0.035 : 0.02);
+  for(let y=0;y<ROWS;y++){
+    for(let x=0;x<COLS;x++){
+      if(terrainGrid[y][x] !== TERRAIN.WATER && terrainGrid[y][x] !== TERRAIN.ROCK){
+        vegetation[y][x] = Math.min(1, vegetation[y][x] + regrowRate);
+      }
+    }
+  }
+
+  // shuffle order so no species always acts first
+  const order = shuffle(animals.filter(a=>a.alive));
+
+  const births = [];
+  for(const a of order){
+    if(!a.alive) continue;
+    const sp = SPECIES[a.species];
+    a.age++;
+    a.cooldown = Math.max(0, a.cooldown-1);
+
+    // natural death: old age or starvation
+    if(a.age > sp.lifespan){
+      killAnimal(a, 'old age');
+      continue;
+    }
+
+    // metabolism cost (winter costs more)
+    const seasonMult = season==='Winter' ? 1.4 : (season==='Summer' ? 0.9 : 1.0);
+    a.energy -= sp.metabolism * seasonMult;
+
+    if(a.energy <= 0){
+      killAnimal(a, 'starvation');
+      continue;
+    }
+
+    // decide action this day
+    actAnimal(a, sp, births);
+  }
+
+  // add births after full pass (avoid acting same day they're born)
+  births.forEach(b=> animals.push(b));
+
+  // cap total population softly to keep sim from exploding (habitat carrying capacity)
+  enforceCarryingCapacity();
+
+  updatePopHistory();
+  renderAll();
+}
+
+function currentSeason(){
+  const idx = Math.floor((day % (DAYS_PER_SEASON*4)) / DAYS_PER_SEASON);
+  return SEASONS[idx];
+}
+function updateSeasonLabel(){
+  document.getElementById('seasonName').textContent = currentSeason();
+  document.getElementById('dayCount').textContent = day;
+}
+
+function shuffle(arr){
+  const a = arr.slice();
+  for(let i=a.length-1;i>0;i--){
+    const j = Math.floor(rand()*(i+1));
+    [a[i],a[j]] = [a[j],a[i]];
+  }
+  return a;
+}
+
+function killAnimal(a, cause){
+  a.alive = false;
+  const sp = SPECIES[a.species];
+  addLog(cause==='starvation' ? 'starve' : (cause==='hunted' ? 'hunt' : 'birth'),
+    `${sp.icon} ${sp.name} #${a.id} died (${cause}).`);
+}
+
+function dist(a,b){ return Math.hypot(a.x-b.x, a.y-b.y); }
+
+function actAnimal(a, sp, births){
+  // find nearby animals within sense range
+  const nearby = animals.filter(o=> o.alive && o.id!==a.id && dist(a,o) <= sp.senseRange);
+
+  if(sp.diet === 'carnivore' || sp.diet === 'omnivore'){
+    if(sp.huntTargets && sp.huntTargets.length){
+      const prey = nearby.filter(o=> sp.huntTargets.includes(o.species) && dist(a,o) <= sp.senseRange);
+      if(prey.length && a.energy < sp.maxEnergy*0.85){
+        prey.sort((p,q)=> dist(a,p)-dist(a,q));
+        const target = prey[0];
+        if(dist(a,target) <= 1.6){
+          // attempt hunt: success depends on power vs target power+speed, some randomness
+          const targetSp = SPECIES[target.species];
+          const successChance = clamp(0.35 + (sp.power - targetSp.power)*0.045 + (sp.speed-targetSp.speed)*0.02, 0.08, 0.85);
+          if(rand() < successChance){
+            const gain = Math.min(sp.maxEnergy - a.energy, targetSp.maxEnergy*0.8);
+            a.energy = Math.min(sp.maxEnergy, a.energy + gain);
+            a.lastAction = 'hunted';
+            killAnimal(target, 'hunted');
+          } else {
+            a.lastAction = 'missed hunt';
+            moveToward(a, target, sp);
+          }
+          maybeReproduce(a, sp, births);
+          return;
+        } else {
+          moveToward(a, target, sp);
+          maybeReproduce(a, sp, births);
+          return;
+        }
+      }
+    }
+    // omnivores graze if hungry and no prey found
+    if(sp.grazeToo && a.energy < sp.maxEnergy*0.7){
+      graze(a, sp);
+      maybeReproduce(a, sp, births);
+      return;
+    }
+    wander(a, sp);
+    maybeReproduce(a, sp, births);
+    return;
+  }
+
+  if(sp.diet === 'herbivore'){
+    // flee if predator nearby
+    const threat = nearby.find(o=>{
+      const os = SPECIES[o.species];
+      return os.huntTargets && os.huntTargets.includes(a.species) && dist(a,o) <= (os.senseRange*0.7);
+    });
+    if(threat){
+      fleeFrom(a, threat, sp);
+      a.lastAction = 'fleeing';
+      return; // no grazing/repro while fleeing
+    }
+    if(a.energy < sp.maxEnergy*0.9){
+      graze(a, sp);
+    } else {
+      wander(a, sp);
+    }
+    maybeReproduce(a, sp, births);
+    return;
+  }
+}
+
+function clamp(v,min,max){ return Math.max(min, Math.min(max, v)); }
+
+function graze(a, sp){
+  const v = vegetation[a.y][a.x];
+  if(v > 0.08 && (terrainGrid[a.y][a.x]===TERRAIN.GRASSLAND || terrainGrid[a.y][a.x]===TERRAIN.OPEN_FOREST || terrainGrid[a.y][a.x]===TERRAIN.DENSE_FOREST)){
+    const eaten = Math.min(v, 0.22);
+    vegetation[a.y][a.x] -= eaten;
+    a.energy = Math.min(SPECIES[a.species].maxEnergy, a.energy + eaten*70);
+    a.lastAction = 'grazing';
+  } else {
+    // move toward better vegetation nearby
+    let best = null, bestV = v;
+    for(let dy=-2; dy<=2; dy++){
+      for(let dx=-2; dx<=2; dx++){
+        const xx=a.x+dx, yy=a.y+dy;
+        if(xx>=0&&xx<COLS&&yy>=0&&yy<ROWS&&isPassable(xx,yy) && vegetation[yy][xx] > bestV){
+          bestV = vegetation[yy][xx]; best = {x:xx,y:yy};
+        }
+      }
+    }
+    if(best) moveOneStepToward(a, best);
+    else wander(a, SPECIES[a.species]);
+    a.lastAction = 'foraging';
+  }
+}
+
+function moveToward(a, target, sp){
+  moveOneStepToward(a, target);
+  a.lastAction = 'stalking';
+}
+
+function fleeFrom(a, threat, sp){
+  const dx = a.x - threat.x, dy = a.y - threat.y;
+  const nx = clamp(a.x + Math.sign(dx || (rand()<0.5?-1:1)), 0, COLS-1);
+  const ny = clamp(a.y + Math.sign(dy || (rand()<0.5?-1:1)), 0, ROWS-1);
+  if(isPassable(nx,ny)){ a.x=nx; a.y=ny; }
+}
+
+function moveOneStepToward(a, target){
+  const dx = Math.sign(target.x - a.x);
+  const dy = Math.sign(target.y - a.y);
+  const nx = clamp(a.x+dx, 0, COLS-1);
+  const ny = clamp(a.y+dy, 0, ROWS-1);
+  if(isPassable(nx,ny)){ a.x=nx; a.y=ny; }
+  else if(isPassable(nx,a.y)){ a.x=nx; }
+  else if(isPassable(a.x,ny)){ a.y=ny; }
+}
+
+function wander(a, sp){
+  if(rand() < 0.55) return; // stay put sometimes — keeps pacing calm
+  const dx = Math.floor(rand()*3)-1;
+  const dy = Math.floor(rand()*3)-1;
+  const nx = clamp(a.x+dx,0,COLS-1), ny = clamp(a.y+dy,0,ROWS-1);
+  if(isPassable(nx,ny)){ a.x=nx; a.y=ny; }
+  a.lastAction = 'roaming';
+}
+
+function maybeReproduce(a, sp, births){
+  if(a.age < sp.matureAge) return;
+  if(a.cooldown > 0) return;
+  if(a.energy < sp.reproEnergyCost*1.3) return;
+
+  // need a nearby mate of same species, mature
+  const mateNearby = animals.some(o=> o.alive && o.id!==a.id && o.species===a.species &&
+    o.age >= sp.matureAge && dist(a,o) <= 2);
+  if(!mateNearby) return;
+
+  if(rand() < sp.reproChance){
+    a.energy -= sp.reproEnergyCost;
+    a.cooldown = Math.floor(sp.matureAge*0.8);
+    const baby = spawnAnimal(a.species, a.x, a.y, 0);
+    baby.energy = sp.maxEnergy*0.5;
+    births.push(baby);
+    addLog('birth', `${sp.icon} New ${sp.name} born near (${a.x}, ${a.y}).`);
+  }
+}
+
+function enforceCarryingCapacity(){
+  // soft cap per species so the reserve doesn't overrun — extra pressure via energy drain, not hard removal,
+  // except in extreme overpopulation where the habitat itself can't support it
+  const counts = {};
+  animals.forEach(a=>{ if(a.alive) counts[a.species] = (counts[a.species]||0)+1; });
+  Object.keys(counts).forEach(key=>{
+    const cap = SPECIES[key].role==='herbivore' ? 70 : (SPECIES[key].role==='domestic' ? 40 : 25);
+    if(counts[key] > cap){
+      // extra starvation pressure on the weakest individuals of that species
+      const pool = animals.filter(a=>a.alive && a.species===key).sort((x,y)=>x.energy-y.energy);
+      const excess = counts[key]-cap;
+      for(let i=0;i<Math.min(excess, 3); i++){
+        killAnimal(pool[i], 'habitat pressure');
+      }
+    }
+  });
+}
+
+/* =========================================================
+   LOGGING
+   ========================================================= */
+function addLog(type, text){
+  logEntries.unshift({type, text, day});
+  if(logEntries.length > 300) logEntries.length = 300;
+}
+
+function renderLog(){
+  const el = document.getElementById('logList');
+  el.innerHTML = '';
+  logEntries.slice(0,80).forEach(e=>{
+    const div = document.createElement('div');
+    div.className = 'log-entry ' + e.type;
+    div.innerHTML = `<span class="t">Day ${e.day}</span><span>${e.text}</span>`;
+    el.appendChild(div);
+  });
+  document.getElementById('logCount').textContent = logEntries.length + ' events';
+}
+
+/* =========================================================
+   POPULATION HISTORY / TRENDS
+   ========================================================= */
+function updatePopHistory(){
+  const counts = {};
+  Object.keys(SPECIES).forEach(k=> counts[k]=0);
+  animals.forEach(a=>{ if(a.alive) counts[a.species]++; });
+  Object.keys(counts).forEach(k=>{
+    if(!popHistory[k]) popHistory[k]=[];
+    popHistory[k].push(counts[k]);
+    if(popHistory[k].length>10) popHistory[k].shift();
+  });
+
+  // extinction log
+  Object.keys(counts).forEach(k=>{
+    const h = popHistory[k];
+    if(counts[k]===0 && h.length>1 && h[h.length-2]>0){
+      addLog('extinct', `⚠ ${SPECIES[k].icon} ${SPECIES[k].name} population has reached local extinction.`);
+    }
+  });
+}
+
+function trendFor(key){
+  const h = popHistory[key];
+  if(!h || h.length<3) return 'flat';
+  const recent = h.slice(-3);
+  if(recent[2] > recent[0]) return 'up';
+  if(recent[2] < recent[0]) return 'down';
+  return 'flat';
+}
+
+/* =========================================================
+   RENDERING — TERRAIN + ANIMALS
+   ========================================================= */
+function resizeCanvas(){
+  const wrap = canvas.parentElement;
+  const w = wrap.clientWidth;
+  CELL = w / COLS;
+  canvas.width = COLS*CELL;
+  canvas.height = ROWS*CELL;
+}
+
+function renderTerrain(){
+  for(let y=0;y<ROWS;y++){
+    for(let x=0;x<COLS;x++){
+      const t = terrainGrid[y][x];
+      ctx.fillStyle = TERRAIN_COLOR[t];
+      ctx.fillRect(x*CELL, y*CELL, CELL+0.5, CELL+0.5);
+      // vegetation tint overlay on land tiles
+      if(t!==TERRAIN.WATER && t!==TERRAIN.ROCK){
+        const v = vegetation[y][x];
+        ctx.fillStyle = `rgba(140,180,90,${(v*0.22).toFixed(3)})`;
+        ctx.fillRect(x*CELL, y*CELL, CELL+0.5, CELL+0.5);
+      }
+      if(t===TERRAIN.WATER){
+        ctx.fillStyle = 'rgba(255,255,255,0.03)';
+        if((x+y)%7===0) ctx.fillRect(x*CELL, y*CELL, CELL, CELL*0.3);
+      }
+    }
+  }
+}
+
+function renderAnimals(){
+  const fontSize = Math.max(9, CELL*0.85);
+  ctx.font = `${fontSize}px serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  animals.forEach(a=>{
+    if(!a.alive) return;
+    const sp = SPECIES[a.species];
+    const px = a.x*CELL + CELL/2;
+    const py = a.y*CELL + CELL/2;
+
+    if(selectedAnimal && selectedAnimal.id===a.id){
+      ctx.beginPath();
+      ctx.arc(px, py, CELL*0.85, 0, Math.PI*2);
+      ctx.strokeStyle = '#e0a659';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    }
+    ctx.fillText(sp.icon, px, py);
+  });
+}
+
+function renderAll(){
+  resizeCanvas();
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  renderTerrain();
+  renderAnimals();
+  renderDashboard();
+  renderLog();
+}
+
+/* =========================================================
+   DASHBOARD (vitals + census + inspector)
+   ========================================================= */
+function renderDashboard(){
+  const alive = animals.filter(a=>a.alive);
+  document.getElementById('vTotal').textContent = alive.length;
+  const speciesPresent = new Set(alive.map(a=>a.species)).size;
+  document.getElementById('vSpecies').textContent = speciesPresent;
+
+  // vegetation cover avg
+  let vegSum=0, vegCells=0;
+  for(let y=0;y<ROWS;y++) for(let x=0;x<COLS;x++){
+    if(terrainGrid[y][x]!==TERRAIN.WATER && terrainGrid[y][x]!==TERRAIN.ROCK){
+      vegSum += vegetation[y][x]; vegCells++;
+    }
+  }
+  document.getElementById('vVeg').textContent = Math.round((vegSum/vegCells)*100) + '%';
+
+  document.getElementById('mapPopCount').textContent = alive.length + ' animals tracked';
+  document.getElementById('censusUpdated').textContent = 'day ' + day;
+
+  // species table
+  const tbody = document.getElementById('speciesBody');
+  tbody.innerHTML = '';
+  Object.keys(SPECIES).forEach(key=>{
+    const sp = SPECIES[key];
+    const group = alive.filter(a=>a.species===key);
+    const count = group.length;
+    const avgEnergy = count ? Math.round(group.reduce((s,a)=>s+a.energy,0)/count) : 0;
+    const energyPct = count ? Math.round((avgEnergy/sp.maxEnergy)*100) : 0;
+    const trend = trendFor(key);
+    const trendSymbol = trend==='up' ? '▲' : (trend==='down' ? '▼' : '—');
+    const trendClass = trend==='up' ? 'trend-up' : (trend==='down' ? 'trend-down' : 'trend-flat');
+
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td><span class="icon">${sp.icon}</span><span class="role-${sp.role}">${sp.name}</span></td>
+      <td>${count}</td>
+      <td>
+        <span class="bar-track"><span class="bar-fill" style="width:${energyPct}%"></span></span>
+        <span style="margin-left:6px; color:var(--ink-dim); font-size:10px;">${energyPct}%</span>
+      </td>
+      <td class="${trendClass}">${trendSymbol}</td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
+
+function renderInspector(){
+  const el = document.getElementById('inspector');
+  if(!selectedAnimal || !selectedAnimal.alive){
+    el.innerHTML = '<div class="empty">Click any animal on the map to view its traits.</div>';
+    return;
+  }
+  const a = selectedAnimal;
+  const sp = SPECIES[a.species];
+  el.innerHTML = `
+    <div style="font-size:20px; margin-bottom:6px;">${sp.icon} <b>${sp.name}</b> <span style="color:var(--ink-dim); font-size:11px;">#${a.id}</span></div>
+    <div class="trait-row"><span>Role</span><b>${sp.roleLabel}</b></div>
+    <div class="trait-row"><span>Age</span><b>${a.age} / ${sp.lifespan} days</b></div>
+    <div class="trait-row"><span>Energy</span><b>${Math.round(a.energy)} / ${sp.maxEnergy}</b></div>
+    <div class="trait-row"><span>Speed</span><b>${sp.speed}</b></div>
+    <div class="trait-row"><span>Power</span><b>${sp.power}</b></div>
+    <div class="trait-row"><span>Sense Range</span><b>${sp.senseRange} cells</b></div>
+    <div class="trait-row"><span>Diet</span><b style="text-transform:capitalize">${sp.diet}</b></div>
+    <div class="trait-row"><span>Position</span><b>(${a.x}, ${a.y})</b></div>
+    <div class="trait-row"><span>Last action</span><b style="text-transform:capitalize">${a.lastAction}</b></div>
+  `;
+}
+
+/* =========================================================
+   LEGEND
+   ========================================================= */
+function renderLegend(){
+  const row = document.getElementById('legendRow');
+  row.innerHTML = '';
+  Object.values(SPECIES).forEach(sp=>{
+    const span = document.createElement('span');
+    span.innerHTML = `<i style="background:${sp.color}"></i>${sp.icon} ${sp.name}`;
+    row.appendChild(span);
+  });
+}
+
+/* =========================================================
+   CANVAS CLICK — SELECT ANIMAL
+   ========================================================= */
+canvas.addEventListener('click', (e)=>{
+  const rect = canvas.getBoundingClientRect();
+  const scaleX = canvas.width/rect.width, scaleY = canvas.height/rect.height;
+  const cx = Math.floor(((e.clientX-rect.left)*scaleX)/CELL);
+  const cy = Math.floor(((e.clientY-rect.top)*scaleY)/CELL);
+  const hit = animals.filter(a=>a.alive && a.x===cx && a.y===cy)
+    .sort((a,b)=>0)[0];
+  selectedAnimal = hit || null;
+  renderInspector();
+  renderAll();
+});
+
+/* =========================================================
+   CONTROLS
+   ========================================================= */
+function tick(){
+  if(paused) return;
+  stepDay();
+  renderInspector();
+}
+
+function startTimer(){
+  if(timer) clearInterval(timer);
+  timer = setInterval(tick, tickMs);
+}
+
+document.getElementById('btnPause').addEventListener('click', (e)=>{
+  paused = !paused;
+  e.target.textContent = paused ? 'Resume' : 'Pause';
+  const chip = document.getElementById('statusChip');
+  chip.classList.toggle('paused', paused);
+  document.getElementById('statusText').textContent = paused ? 'Paused' : 'Running';
+});
+
+document.getElementById('btnStep').addEventListener('click', ()=>{
+  if(!paused){
+    paused = true;
+    document.getElementById('btnPause').textContent = 'Resume';
+    document.getElementById('statusChip').classList.add('paused');
+    document.getElementById('statusText').textContent = 'Paused';
+  }
+  stepDay();
+  renderInspector();
+});
+
+document.getElementById('btnReset').addEventListener('click', ()=>{
+  initReserve();
+});
+
+document.querySelectorAll('.speed-btn').forEach(btn=>{
+  btn.addEventListener('click', ()=>{
+    document.querySelectorAll('.speed-btn').forEach(b=>b.classList.remove('active'));
+    btn.classList.add('active');
+    tickMs = parseInt(btn.dataset.speed,10);
+    document.getElementById('tickInfo').textContent = `Tick interval: ${tickMs}ms`;
+    startTimer();
+  });
+});
+
+window.addEventListener('resize', renderAll);
+
+/* =========================================================
+   INIT
+   ========================================================= */
+function initReserve(){
+  day = 0;
+  paused = false;
+  logEntries = [];
+  popHistory = {};
+  selectedAnimal = null;
+  document.getElementById('btnPause').textContent = 'Pause';
+  document.getElementById('statusChip').classList.remove('paused');
+  document.getElementById('statusText').textContent = 'Running';
+
+  generateTerrain();
+  seedPopulation();
+  renderLegend();
+  addLog('birth', 'Reserve initialized. Wardens release founding population into Wardenwood.');
+  updatePopHistory();
+  renderAll();
+  renderInspector();
+  startTimer();
+}
+
+initReserve();
+
+})();
+</script>
+
+</body>
+</html>
